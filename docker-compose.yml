@@ -1,0 +1,95 @@
+version: "3.8"
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant_db
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    networks:
+      - metagpt_network
+
+  redis:
+    image: redis:alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379"
+    networks:
+      - metagpt_network
+
+  backend:
+    container_name: fastapi_backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - qdrant
+      - redis
+    environment:
+      - QDRANT_HOST=qdrant
+      - REDIS_HOST=redis
+    volumes:
+      - ../MetaGPT:/app/MetaGPT
+      - ../langgraph:/app/langgraph
+      - ../playwright-python:/app/playwright-python
+      - ../playwright_stealth:/app/playwright_stealth
+      - ../gologin:/app/gologin
+    networks:
+      - metagpt_network
+
+  webui:
+    container_name: nextjs_webui
+    build:
+      context: .
+      dockerfile: webui/Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    networks:
+      - metagpt_network
+
+  agent:
+    container_name: purchase_agent
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    depends_on:
+      - backend
+      - qdrant
+      - redis
+    volumes:
+      - ../MetaGPT:/app/MetaGPT
+      - ../langgraph:/app/langgraph
+      - ../playwright-python:/app/playwright-python
+      - ../playwright_stealth:/app/playwright_stealth
+      - ../gologin:/app/gologin
+    networks:
+      - metagpt_network
+
+  telegram_bot:
+    container_name: telegram_notifier
+    build:
+      context: .
+      dockerfile: telegram_bot/Dockerfile
+    depends_on:
+      - backend
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    networks:
+      - metagpt_network
+
+networks:
+  metagpt_network:
+    driver: bridge
+
+volumes:
+  qdrant_storage:
